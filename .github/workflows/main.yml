@@ -2,70 +2,58 @@ name: Фитнес-тренер бот
 
 on:
   schedule:
-    # Запуск каждый день в 07:00 и 19:00 UTC
-    # Для Москвы: +3 часа (10:00 и 22:00)
     - cron: '0 7,19 * * *'
-  workflow_dispatch:  # Ручной запуск для тестов
+  workflow_dispatch:
 
 jobs:
   send_fitness_reminder:
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Загружаем код
+      - name: Загружаем код
         uses: actions/checkout@v4
 
-      - name: 📦 Устанавливаем jq
+      - name: Устанавливаем jq
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: 🧠 Генерируем сообщение
+      - name: Генерируем сообщение
         id: message
         run: |
-          # Определяем день недели (1=понедельник, 7=воскресенье)
           DAY_NUM=$(date +%u)
-          
-          # Читаем конфиг
           PROJECT_NAME=$(jq -r '.project_name' config.json)
           WATER_GOAL=$(jq -r '.water_goal_liters' config.json)
           
-          # Получаем упражнения на сегодня
           DAYS=("monday" "tuesday" "wednesday" "thursday" "friday" "saturday" "sunday")
           TODAY_KEY=${DAYS[$((DAY_NUM-1))]}
           
-          # Формируем список упражнений
           WORKOUTS=$(jq -r ".workouts.$TODAY_KEY[]" config.json 2>/dev/null | sed 's/^/• /' | tr '\n' '\\n')
           
-          # Случайная мотивация
-          MOTIVATION=$(jq -r '.motivational_phrases | .[now | floor % length]' config.json)
+          MOTIVATION=$(jq -r '.motivational_phrases[0]' config.json)
           
-          # Формируем итоговое сообщение с Markdown
-          MESSAGE=$(cat <<EOF
-*🏋️ $PROJECT_NAME*
+          MESSAGE="*🏋️ ${PROJECT_NAME}*
 
-📅 *Сегодня:* $(date +%d.%m.%Y)
+          📅 *Сегодня:* $(date +%d.%m.%Y)
 
-💧 *Вода:* цель $WATER_GOAL л
-🔁 Вы уже выпили? Напомню вечером!
+          💧 *Вода:* цель ${WATER_GOAL} л
 
-📋 *Тренировка на сегодня:*
-$WORKOUTS
+          📋 *Тренировка на сегодня:*
+          ${WORKOUTS}
 
-✨ $MOTIVATION
+          ✨ ${MOTIVATION}"
+          
+          echo "text<<EOF" >> $GITHUB_OUTPUT
+          echo "$MESSAGE" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-_Нажми /start, чтобы отметить выполнение_
-EOF
-)
-          echo "text=$MESSAGE" >> $GITHUB_OUTPUT
-
-      - name: 📤 Отправляем в Telegram
+      - name: Отправляем в Telegram
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d text="${{ steps.message.outputs.text }}" \
             -d parse_mode="Markdown"
 
-      - name: 💾 Сохраняем историю
+      - name: Сохраняем историю
         run: |
           TIMESTAMP=$(date -Iseconds)
           jq --arg ts "$TIMESTAMP" '.last_run = $ts' data.json > tmp.json && mv tmp.json data.json
@@ -73,5 +61,5 @@ EOF
           git config user.email "github-actions@github.com"
           git config user.name "GitHub Actions"
           git add data.json
-          git commit -m "🤖 Автозапуск: $TIMESTAMP" || echo "Нет изменений"
-          git push || echo "Push не требуется"
+          git commit -m "Auto update: $TIMESTAMP" || echo "No changes"
+          git push || echo "Nothing to push"
